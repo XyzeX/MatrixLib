@@ -96,24 +96,127 @@ namespace mat
 		}
 	}
 
-	Matrix Matrix::Reshape(size_t newX, size_t newY) const
+	Matrix Matrix::Reshape(size_t newRows, size_t newCols) const
 	{
-		// Look at numpy reshape
-		throw std::runtime_error("RESHAPE NOT DEFINED!\n");
+		if (newRows == Infer && newCols == Infer)
+		{
+			throw std::invalid_argument("Reshape: Only one dimension can be inferred");
+		}
+
+		if (newRows == Infer)
+		{
+			if (newCols == 0 || size % newCols != 0)
+			{
+				throw std::invalid_argument("Reshape: size is not evenly divisible by the given cols");
+			}
+			newRows = size / newCols;
+		}
+		else if (newCols == Infer)
+		{
+			if (newRows == 0 || size % newRows != 0)
+			{
+				throw std::invalid_argument("Reshape: size is not evenly divisible by the given rows");
+			}
+			newCols = size / newRows;
+		}
+
+		if (newRows * newCols != size)
+		{
+			throw std::invalid_argument("Reshape: total element count must match");
+		}
+
+		Matrix result(newRows, newCols);
+		std::copy(begin(), end(), result.begin());
+		return result;
 	}
 
 	Matrix Matrix::Transpose() const
 	{
-		Matrix m = Matrix(shape);
+		Matrix m(shape.cols, shape.rows);
 
-		for (int r = 0; r < shape.rows; r++)
+		for (size_t rBlock = 0; rBlock < shape.rows; rBlock += BLOCK_SIZE)
 		{
-			for (int c = 0; c < shape.cols; c++)
+			for (size_t cBlock = 0; cBlock < shape.cols; cBlock += BLOCK_SIZE)
 			{
-				m(c, r) = (*this)(r, c);
+				const size_t rEnd = std::min(rBlock + BLOCK_SIZE, shape.rows);
+				const size_t cEnd = std::min(cBlock + BLOCK_SIZE, shape.cols);
+
+				for (size_t r = rBlock; r < rEnd; r++)
+				{
+					for (size_t c = cBlock; c < cEnd; c++)
+					{
+						m(c, r) = (*this)(r, c);
+					}
+				}
 			}
 		}
 		return m;
+	}
+
+	Matrix Matrix::Sigmoid() const
+	{
+		return Apply([](float x) { return 1.0f / (1.0f + std::exp(-x)); });
+	}
+
+	Matrix Matrix::Log() const
+	{
+		return Apply([](float x) { return std::log(x); });
+	}
+
+	float Matrix::Sum() const
+	{
+		float total = 0.0f;
+		for (size_t c = 0; c < size; c++)
+		{
+			total += arr[c];
+		}
+		return total;
+	}
+
+	Matrix Matrix::SumAxis(int axis) const
+	{
+		if (axis == 1) // one value per row
+		{
+			Matrix result(shape.rows, 1);
+			for (size_t r = 0; r < shape.rows; r++)
+			{
+				float total = 0.0f;
+				for (size_t c = 0; c < shape.cols; ++c)
+				{
+					total += (*this)(r, c);
+				}
+				result(r, 0) = total;
+			}
+			return result;
+		}
+		else if (axis == 0) // one value per column
+		{
+			Matrix result(1, shape.cols);
+			for (size_t c = 0; c < shape.cols; ++c)
+			{
+				float total = 0.0f;
+				for (size_t r = 0; r < shape.rows; ++r)
+					total += (*this)(r, c);
+				result(0, c) = total;
+			}
+			return result;
+		}
+		throw std::invalid_argument("SumAxis: axis must be 0 or 1");
+	}
+
+	Matrix Matrix::EntryWiseMultiply(const Matrix& other) const
+	{
+		if (shape != other.shape)
+		{
+			throw std::invalid_argument("EntryWiseMultiply: matrix dimensions must match");
+		}
+
+		Matrix result(shape);
+		for (size_t c = 0; c < size; c++)
+		{
+			result.arr[c] = arr[c] * other.arr[c];
+		}
+		return result;
 	}
 
 
@@ -217,6 +320,21 @@ namespace mat
 		return MultiplyAVX2(other);
 	}
 
+	Matrix Matrix::operator+(float scalar) const
+	{
+		return Apply([scalar](float v) { return v + scalar; });
+	}
+
+	Matrix Matrix::operator-(float scalar) const
+	{
+		return Apply([scalar](float v) { return v - scalar; });
+	}
+
+	Matrix Matrix::operator*(float scalar) const
+	{
+		return Apply([scalar](float v) { return v * scalar; });
+	}
+
 
 	// -------------------------
 	// Helpers
@@ -228,7 +346,7 @@ namespace mat
 
 	Matrix Matrix::Multiply(const Matrix& other) const
 	{
-		Matrix m = Matrix(shape.rows, other.shape.cols);
+		Matrix m(shape.rows, other.shape.cols);
 		std::fill_n(m.begin(), m.size, 0.0f);
 
 		for (size_t r = 0; r < m.shape.rows; r++)
@@ -246,7 +364,7 @@ namespace mat
 
 	Matrix Matrix::MultiplyAVX2(const Matrix& other) const
 	{
-		Matrix m = Matrix(shape.rows, other.shape.cols);
+		Matrix m(shape.rows, other.shape.cols);
 		std::fill_n(m.begin(), m.size, 0.0f);
 
 		alignas(64) float localA[BLOCK_SIZE][BLOCK_SIZE];
@@ -309,7 +427,7 @@ namespace mat
 
 	Matrix Matrix::MultiplyAVX512f(const Matrix& other) const
 	{
-		Matrix m = Matrix(shape.rows, other.shape.cols);
+		Matrix m(shape.rows, other.shape.cols);
 		std::fill_n(m.begin(), m.size, 0.0f);
 
 		const size_t blockNumRows = shape.rows / BLOCK_SIZE;
@@ -448,5 +566,20 @@ namespace mat
 			os << "]\n";
 		}
 		return os;
+	}
+
+	Matrix operator+(float scalar, const Matrix& m)
+	{
+		return m + scalar;
+	}
+
+	Matrix operator-(float scalar, const Matrix& m)
+	{
+		return m.Apply([scalar](float v) { return scalar - v; });
+	}
+
+	Matrix operator*(float scalar, const Matrix& m)
+	{
+		return m * scalar;
 	}
 }

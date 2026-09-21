@@ -163,6 +163,163 @@ TEST_CASE("Matrix addition throws on mismatched dimensions", "[matrix][addition]
 
 
 // =======================================================================
+// Subtraction
+// =======================================================================
+
+TEST_CASE("Matrix subtraction computes elementwise difference", "[matrix][subtraction]")
+{
+	Matrix a{ {5.0f, 6.0f}, {7.0f, 8.0f} };
+	Matrix b{ {1.0f, 2.0f}, {3.0f, 4.0f} };
+
+	Matrix c = a - b;
+
+	REQUIRE(c(0, 0) == 4.0f);
+	REQUIRE(c(0, 1) == 4.0f);
+	REQUIRE(c(1, 0) == 4.0f);
+	REQUIRE(c(1, 1) == 4.0f);
+}
+
+TEST_CASE("Matrix minus itself is a zero matrix", "[matrix][subtraction]")
+{
+	Matrix a(4, 4);
+	a.FillRandom();
+
+	Matrix c = a - a;
+
+	for (size_t i = 0; i < c.Size(); ++i)
+	{
+		REQUIRE(c.begin()[i] == 0.0f);
+	}
+}
+
+TEST_CASE("Matrix subtraction with zero is identity", "[matrix][subtraction]")
+{
+	Matrix a{ {1.0f, 2.0f}, {3.0f, 4.0f} };
+	Matrix zero = MakeFilled(2, 2, 0.0f);
+
+	Matrix c = a - zero;
+
+	REQUIRE(c(0, 0) == a(0, 0));
+	REQUIRE(c(0, 1) == a(0, 1));
+	REQUIRE(c(1, 0) == a(1, 0));
+	REQUIRE(c(1, 1) == a(1, 1));
+}
+
+TEST_CASE("Matrix subtraction throws on mismatched dimensions", "[matrix][subtraction]")
+{
+	Matrix a(2, 3);
+	Matrix b(3, 2);
+	REQUIRE_THROWS_AS(a - b, std::invalid_argument);
+}
+
+
+// =======================================================================
+// Unary negation
+// =======================================================================
+
+TEST_CASE("Unary negation negates every element", "[matrix][negation]")
+{
+	Matrix a{ {1.0f, -2.0f}, {0.0f, 4.0f} };
+
+	Matrix c = -a;
+
+	REQUIRE(c(0, 0) == -1.0f);
+	REQUIRE(c(0, 1) == 2.0f);
+	REQUIRE(c(1, 0) == 0.0f);
+	REQUIRE(c(1, 1) == -4.0f);
+}
+
+TEST_CASE("Double negation returns the original matrix", "[matrix][negation]")
+{
+	Matrix a(6, 4);
+	a.FillRandom();
+
+	Matrix roundTripped = -(-a);
+
+	for (size_t i = 0; i < a.Size(); ++i)
+	{
+		REQUIRE(roundTripped.begin()[i] == a.begin()[i]);
+	}
+}
+
+TEST_CASE("Negation is consistent with subtraction from zero", "[matrix][negation][subtraction]")
+{
+	// Cross-checks negation and subtraction against each other rather than
+	// hand-computed values: 0 - a should equal -a for any a.
+	Matrix a(5, 5);
+	a.FillRandom();
+	Matrix zero(5, 5);
+
+	Matrix viaSubtraction = zero - a;
+	Matrix viaNegation = -a;
+
+	for (size_t i = 0; i < a.Size(); ++i)
+	{
+		REQUIRE(viaSubtraction.begin()[i] == viaNegation.begin()[i]);
+	}
+}
+
+
+// =======================================================================
+// Compound assignment (+=, -=)
+// =======================================================================
+
+TEST_CASE("operator+= mutates in place and matches operator+", "[matrix][addition][compound]")
+{
+	Matrix a{ {1.0f, 2.0f}, {3.0f, 4.0f} };
+	Matrix b{ {5.0f, 6.0f}, {7.0f, 8.0f} };
+	Matrix expected = a + b; // computed before a is mutated below
+
+	Matrix& ref = (a += b);
+
+	REQUIRE(a(0, 0) == expected(0, 0));
+	REQUIRE(a(0, 1) == expected(0, 1));
+	REQUIRE(a(1, 0) == expected(1, 0));
+	REQUIRE(a(1, 1) == expected(1, 1));
+	REQUIRE(&ref == &a); // returns *this by reference, not a copy
+}
+
+TEST_CASE("operator-= mutates in place and matches operator-", "[matrix][subtraction][compound]")
+{
+	Matrix a{ {5.0f, 6.0f}, {7.0f, 8.0f} };
+	Matrix b{ {1.0f, 2.0f}, {3.0f, 4.0f} };
+	Matrix expected = a - b; // computed before a is mutated below
+
+	Matrix& ref = (a -= b);
+
+	REQUIRE(a(0, 0) == expected(0, 0));
+	REQUIRE(a(0, 1) == expected(0, 1));
+	REQUIRE(a(1, 0) == expected(1, 0));
+	REQUIRE(a(1, 1) == expected(1, 1));
+	REQUIRE(&ref == &a);
+}
+
+TEST_CASE("operator+= and operator-= throw on mismatched dimensions", "[matrix][compound]")
+{
+	Matrix a(2, 3);
+	Matrix b(3, 2);
+
+	REQUIRE_THROWS_AS(a += b, std::invalid_argument);
+	REQUIRE_THROWS_AS(a -= b, std::invalid_argument);
+}
+
+TEST_CASE("Compound assignment chains left-to-right", "[matrix][compound]")
+{
+	// a += b -= c   parses as   a += (b -= c)
+	Matrix a{ {10.0f, 10.0f} };
+	Matrix b{ {5.0f, 5.0f} };
+	Matrix c{ {2.0f, 2.0f} };
+
+	a += (b -= c); // b becomes {3, 3}, then a becomes {13, 13}
+
+	REQUIRE(b(0, 0) == 3.0f);
+	REQUIRE(b(0, 1) == 3.0f);
+	REQUIRE(a(0, 0) == 13.0f);
+	REQUIRE(a(0, 1) == 13.0f);
+}
+
+
+// =======================================================================
 // Multiplication
 // =======================================================================
 
@@ -319,6 +476,8 @@ TEST_CASE("Matrix multiplication matches naive result across a block boundary (2
 	}
 }
 
+// --- AVX512, AVX2 and scalar individually -------------------------------
+
 TEST_CASE("operator* falls back to AVX2 path when AVX512 is unavailable", "[matrix][multiplication][dispatch]")
 {
 	mat::HardwareInfo forced = Matrix::s_HardwareInfo;
@@ -374,4 +533,97 @@ TEST_CASE("operator* uses AVX512 path when available", "[matrix][multiplication]
 	Matrix actual = a * b;
 
 	REQUIRE(ApproxEqual(actual, expected));
+}
+
+
+// =======================================================================
+// Transpose
+// =======================================================================
+
+TEST_CASE("Transpose swaps shape for non-square matrices", "[matrix][transpose]")
+{
+	Matrix a(3, 5);
+	Matrix t = a.Transpose();
+
+	REQUIRE(t.GetShape().rows == 5);
+	REQUIRE(t.GetShape().cols == 3);
+}
+
+TEST_CASE("Transpose produces correct values (hand-checked small example)", "[matrix][transpose]")
+{
+	// [1 2 3]        [1 4]
+	// [4 5 6]  -->   [2 5]
+	//                [3 6]
+	Matrix a{ {1.0f, 2.0f, 3.0f}, {4.0f, 5.0f, 6.0f} };
+	Matrix t = a.Transpose();
+
+	REQUIRE(t.GetShape().rows == 3);
+	REQUIRE(t.GetShape().cols == 2);
+	REQUIRE(t(0, 0) == 1.0f);
+	REQUIRE(t(0, 1) == 4.0f);
+	REQUIRE(t(1, 0) == 2.0f);
+	REQUIRE(t(1, 1) == 5.0f);
+	REQUIRE(t(2, 0) == 3.0f);
+	REQUIRE(t(2, 1) == 6.0f);
+}
+
+TEST_CASE("Transpose is its own inverse (transposing twice returns the original)", "[matrix][transpose]")
+{
+	Matrix a(7, 11);
+	a.FillRandom();
+
+	Matrix roundTripped = a.Transpose().Transpose();
+
+	REQUIRE(roundTripped.GetShape() == a.GetShape());
+	for (size_t r = 0; r < a.GetShape().rows; ++r)
+	{
+		for (size_t c = 0; c < a.GetShape().cols; ++c)
+		{
+			REQUIRE(roundTripped(r, c) == a(r, c));
+		}
+	}
+}
+
+TEST_CASE("Transpose handles row and column vectors", "[matrix][transpose]")
+{
+	Matrix row(1, 6);
+	row.FillRandom();
+	Matrix t = row.Transpose();
+
+	REQUIRE(t.GetShape().rows == 6);
+	REQUIRE(t.GetShape().cols == 1);
+	for (size_t i = 0; i < 6; ++i)
+	{
+		REQUIRE(t(i, 0) == row(0, i));
+	}
+}
+
+TEST_CASE("Transpose is correct across block-boundary shapes", "[matrix][transpose][blocking]")
+{
+	const std::vector<std::pair<size_t, size_t>> shapes = {
+		{16, 16},
+		{5, 5},
+		{20, 20},
+		{17, 33}, // non-square, straddles a boundary in both dimensions
+	};
+
+	for (const auto& [rows, cols] : shapes)
+	{
+		Matrix a(rows, cols);
+		a.FillRandom();
+
+		Matrix t = a.Transpose();
+
+		INFO("shape: " << rows << "x" << cols);
+		REQUIRE(t.GetShape().rows == cols);
+		REQUIRE(t.GetShape().cols == rows);
+
+		for (size_t r = 0; r < rows; ++r)
+		{
+			for (size_t c = 0; c < cols; ++c)
+			{
+				REQUIRE(t(c, r) == a(r, c));
+			}
+		}
+	}
 }
