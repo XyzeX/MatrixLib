@@ -1,27 +1,89 @@
 #pragma once
-
+#include <iostream>
+#include <initializer_list>
 #include <cstddef>
-#include <stdexcept>
-#include <vector>
+#include <memory>
+#include <thread>
 
-namespace matrixlib {
+#include "shape.hpp"
+#include "hardwareinfo.hpp"
 
-class Matrix {
-public:
-    Matrix(std::size_t rows, std::size_t cols);
+namespace mat
+{
+	// -------------------------
+	// Matrix class
+	// -------------------------
+	class Matrix
+	{
+	public:
+		// -------------------------
+		// Special member functions
+		// -------------------------
+		Matrix();
+		explicit Matrix(const Shape& _shape);
+		explicit Matrix(size_t rows, size_t cols);
+		Matrix(std::initializer_list<float> init);
+		Matrix(std::initializer_list<std::initializer_list<float>> init);
+		~Matrix();
 
-    [[nodiscard]] std::size_t rows() const noexcept { return rows_; }
-    [[nodiscard]] std::size_t cols() const noexcept { return cols_; }
+		Matrix(const Matrix& other);							// copy constructor
+		Matrix& operator=(const Matrix& other);					// copy assignment
+		Matrix(Matrix&& other) noexcept = default;				// move constructor
+		Matrix& operator=(Matrix&& other) noexcept = default;	// move assignment
 
-    double& operator()(std::size_t r, std::size_t c);
-    double operator()(std::size_t r, std::size_t c) const;
+		// -------------------------
+		// Member methods
+		// -------------------------
+		void FillRandom();
+		[[nodiscard]] Matrix Reshape(size_t newX, size_t newY) const;
+		[[nodiscard]] Matrix Transpose() const;
+		[[nodiscard]] const Shape& GetShape() const { return shape; }
+		[[nodiscard]] size_t Size() const { return size; }
 
-    Matrix operator+(const Matrix& other) const;
+		// Iterator
+		float* begin() { return arr.get(); }
+		float* end() { return arr.get() + size; }
 
-private:
-    std::size_t rows_;
-    std::size_t cols_;
-    std::vector<double> data_;
-};
+		const float* begin() const { return arr.get(); }
+		const float* end() const { return arr.get() + size; }
 
-} // namespace matrixlib
+
+		// -------------------------
+		// Operators
+		// -------------------------
+		float& operator()(size_t r, size_t c) { return arr[ArrIndex(r, c)]; }
+		const float& operator()(size_t r, size_t c) const { return arr[ArrIndex(r, c)]; }
+
+		Matrix& operator+=(const Matrix& other);
+		Matrix& operator-=(const Matrix& other);
+
+		[[nodiscard]] Matrix operator-() const;
+		[[nodiscard]] Matrix operator+(const Matrix& other) const;
+		[[nodiscard]] Matrix operator-(const Matrix& other) const;
+		[[nodiscard]] Matrix operator*(const Matrix& other) const;
+
+	private:
+		// -------------------------
+		// Helpers
+		// -------------------------
+		size_t ArrIndex(size_t r, size_t c) const;
+		Matrix Multiply(const Matrix& other) const;
+		Matrix MultiplyAVX2(const Matrix& other) const;
+		Matrix MultiplyAVX512f(const Matrix& other) const;
+
+	private:
+		Shape shape;
+		size_t size;
+		std::unique_ptr<float[]> arr;
+
+	public:
+		inline static constexpr size_t BLOCK_SIZE = 16; // At least 16 for AVX512 with float
+		inline static HardwareInfo s_HardwareInfo = HardwareInfo::Detect();
+	};
+
+
+	// -------------------------
+	// Non-member operators
+	// -------------------------
+	std::ostream& operator<<(std::ostream& os, const Matrix& m);
+}
